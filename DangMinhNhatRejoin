@@ -1,0 +1,217 @@
+import os
+import threading
+import time
+import requests
+
+# --- Cấu hình danh sách các file cần kiểm tra từ GitHub ---
+CONFIG_TARGETS = [
+    {
+        "file_path": "/storage/emulated/0/Delta/Workspace/SpeedHubX/Save System/Grow A Garden 2/config.json",
+        "url": "https://raw.githubusercontent.com/dangnhat588-source/GAG2/refs/heads/main/config",
+        "name": "Grow A Garden 2"
+    },
+    {
+        "file_path": "/storage/emulated/0/Delta/Workspace/SpeedHubX/Save System/StealAnEgg/config.json",
+        "url": "https://raw.githubusercontent.com/dangnhat588-source/SAE/refs/heads/main/config",
+        "name": "Steal An Egg"
+    }
+]
+
+SYNC_INTERVAL = 1  # Chu kỳ kiểm tra file (giây)
+
+# --- Cấu hình cho phần Auto-Restart (Rejoin) ---
+DOWNLOAD_DIR = "/storage/emulated/0/Download"
+FOLDER_NAME = os.path.join(DOWNLOAD_DIR, "DMN_Tool")
+CONFIG_FILE = os.path.join(FOLDER_NAME, "accounts.txt")
+
+RESTART_INTERVAL = 39999999600
+SEQUENTIAL_DELAY = 10
+
+
+def check_and_fix_file_loop():
+    """Luồng chạy ngầm: Quét và cập nhật danh sách các file config liên tục mỗi 1 giây."""
+    session = requests.Session()
+
+    while True:
+        for target in CONFIG_TARGETS:
+            file_path = target["file_path"]
+            url = target["url"]
+            name = target["name"]
+
+            # Tạo thư mục chứa file nếu chưa tồn tại
+            dir_name = os.path.dirname(file_path)
+            if not os.path.exists(dir_name):
+                try:
+                    os.makedirs(dir_name, exist_ok=True)
+                    print(f"[+] [Sync] Đã tạo thư mục cho {name}: {dir_name}")
+                except Exception as e:
+                    print(f"[!] [Sync] Lỗi khi tạo thư mục {name}: {e}")
+
+            try:
+                # Tải nội dung mẫu từ GitHub
+                response = session.get(url, timeout=5)
+                if response.status_code == 200:
+                    sample_content = response.text.strip()
+
+                    # Đọc nội dung hiện tại của file local
+                    current_content = ""
+                    if os.path.exists(file_path):
+                        try:
+                            with open(file_path, "r", encoding="utf-8") as f:
+                                current_content = f.read().strip()
+                        except Exception:
+                            pass
+
+                    # Nếu nội dung khác nhau hoặc file chưa tồn tại -> Cập nhật lập tức
+                    if current_content != sample_content:
+                        print(
+                            f"\n[⚡] [Sync] Phát hiện file config ({name}) bị thay đổi!"
+                            " Đang đồng bộ lại từ GitHub..."
+                        )
+                        with open(file_path, "w", encoding="utf-8") as f:
+                            f.write(response.text)
+                        print(f"[+] [Sync] Đã cập nhật file ({name}) thành công!\n")
+                else:
+                    print(
+                        f"[!] [Sync - {name}] GitHub trả về mã lỗi: {response.status_code}"
+                    )
+
+            except Exception:
+                # Tránh làm gián đoạn vòng lặp nếu rớt mạng tạm thời
+                pass
+
+        # Nghỉ 1 giây trước khi quét lại vòng mới
+        time.sleep(SYNC_INTERVAL)
+
+
+def load_accounts():
+    accounts = {}
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+
+                if "," in line:
+                    parts = line.split(",", 1)
+                elif "=" in line:
+                    parts = line.split("=", 1)
+                else:
+                    continue
+
+                pkg = parts[0].strip()
+                link = parts[1].strip()
+                pkg = pkg.split()[0]
+
+                if pkg and link:
+                    accounts[pkg] = link
+    return accounts
+
+
+def kill_and_open_tab(pkg, server_link):
+    print(f"\n[🔄] Xử lý gói: {pkg}")
+
+    print(f"[-] Đang tắt hoàn toàn ứng dụng {pkg}...")
+    os.system(f"su -c 'am force-stop {pkg}'")
+    time.sleep(3)
+
+    print(f"[+] Đang mở lại app {pkg} kèm link server...")
+    cmd = (
+        "su -c 'am start -W -a android.intent.action.VIEW -d"
+        f' "{server_link}" {pkg}\''
+    )
+    os.system(cmd)
+
+    time.sleep(2)
+    print(f"[+] Đã hoàn tất mở lại cho {pkg}")
+
+
+def main():
+    print("==========================================")
+    print("   TOOL AUTO-RESTART DMN & SYNC CONFIG")
+    print("==========================================")
+
+    # KÍCH HOẠT LUỒNG QUÉT FILE NGUYÊN BẢN MỖI 1 GIÂY (RUN IN BACKGROUND)
+    sync_thread = threading.Thread(target=check_and_fix_file_loop, daemon=True)
+    sync_thread.start()
+    print(
+        "[🚀] Đã kích hoạt luồng tự động kiểm tra & đồng bộ các file config (1s/lần).\n"
+    )
+
+    if not os.path.exists(CONFIG_FILE):
+        print(
+            f"[!] Không tìm thấy file {CONFIG_FILE}. Vui lòng tạo file chứa"
+            " danh sách tài khoản."
+        )
+        return
+
+    accounts = load_accounts()
+    if not accounts:
+        print(
+            "[!] Không tìm thấy tài khoản nào trong file accounts.txt. Thoát"
+            " chương trình."
+        )
+        return
+
+    print(f"[-] Đang tải tổng cộng {len(accounts)} gói ứng dụng...")
+    print(f"[-] Thư mục quản lý: {FOLDER_NAME}\n")
+
+    print("[*] Bắt đầu mở lần lượt từng tab ban đầu (Delay 10s mỗi tab)...")
+    for index, (pkg, server_link) in enumerate(accounts.items(), 1):
+        print(f"\n--- Tab {index}/{len(accounts)} ---")
+        kill_and_open_tab(pkg, server_link)
+
+        if index < len(accounts):
+            print(
+                f"[*] Đang đợi {SEQUENTIAL_DELAY} giây để tab load link"
+                " server..."
+            )
+            time.sleep(SEQUENTIAL_DELAY)
+        else:
+            time.sleep(3)
+
+    print(
+        "\n[+] Đã khởi động xong toàn bộ các tab! Chuyển sang chế độ đếm giờ"
+        " Rejoin định kỳ...\n"
+    )
+
+    timer_restart = {pkg: time.time() for pkg in accounts.keys()}
+
+    loop_count = 0
+    while True:
+        accounts = load_accounts()
+        current_time = time.time()
+
+        loop_count += 1
+        if loop_count >= 30:
+            current_time_str = time.strftime("%H:%M:%S")
+            print(
+                f"[*] [{current_time_str}] Tool đang chạy ngầm đếm giờ cho"
+                f" {len(accounts)} gói..."
+            )
+            loop_count = 0
+
+        for pkg, server_link in list(accounts.items()):
+            if pkg not in timer_restart:
+                timer_restart[pkg] = current_time
+                continue
+
+            if current_time - timer_restart[pkg] >= RESTART_INTERVAL:
+                print(f"\n[⏰] Đến lịch làm mới (Rejoin) cho gói {pkg}.")
+                kill_and_open_tab(pkg, server_link)
+
+                timer_restart[pkg] = time.time()
+                print(f"[+] Đã hoàn tất lệnh Rejoin định kỳ cho {pkg}\n")
+
+                time.sleep(3)
+
+        for pkg in list(timer_restart.keys()):
+            if pkg not in accounts:
+                del timer_restart[pkg]
+
+        time.sleep(10)
+
+
+if __name__ == "__main__":
+    main()
