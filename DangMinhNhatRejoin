@@ -34,7 +34,7 @@ DOWNLOAD_DIR = "/storage/emulated/0/Download"
 FOLDER_NAME = os.path.join(DOWNLOAD_DIR, "DMN_Tool")
 CONFIG_FILE = os.path.join(FOLDER_NAME, "accounts.txt")
 
-RESTART_INTERVAL = 39999999600
+RESTART_INTERVAL = 900
 SEQUENTIAL_DELAY = 10
 
 
