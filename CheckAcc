@@ -1,0 +1,370 @@
+from flask import Flask, request, jsonify, render_template_string
+import time
+
+app = Flask(__name__)
+
+# Cấu trúc lưu trữ dữ liệu
+accounts = {}
+
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DangMinhNhat - Live Tracker</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --accent-color: #38bdf8;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --border-color: #334155;
+            --danger-color: #ef4444;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Inter', sans-serif; background-color: var(--bg-color); color: var(--text-main); padding: 24px; min-height: 100vh; }
+        
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; border-bottom: 1px solid var(--border-color); padding-bottom: 16px; flex-wrap: wrap; gap: 12px; }
+        .header h1 { font-size: 28px; font-weight: 700; background: linear-gradient(135deg, #38bdf8, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .stats-container { display: flex; gap: 12px; }
+        .stat-card { background: var(--card-bg); padding: 8px 16px; border-radius: 10px; border: 1px solid var(--border-color); font-size: 14px; font-weight: 600; color: var(--text-muted); }
+        .stat-card span { color: var(--accent-color); font-size: 16px; font-weight: 700; margin-left: 6px; }
+
+        .device-card { background-color: var(--card-bg); border-radius: 12px; border: 1px solid var(--border-color); margin-bottom: 24px; overflow: hidden; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3); }
+        .device-header { background: #182234; padding: 14px 20px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
+        .device-title { font-weight: 700; color: var(--accent-color); font-size: 16px; }
+        .device-actions { display: flex; align-items: center; gap: 10px; }
+        .badge { background: rgba(56, 189, 248, 0.1); color: var(--accent-color); padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+
+        /* Chống giật cuộn ngang */
+        .table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; min-width: 750px; }
+        th { background-color: rgba(15, 23, 42, 0.5); color: var(--text-muted); padding: 12px 18px; font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em; }
+        td { padding: 12px 18px; border-top: 1px solid var(--border-color); color: var(--text-main); }
+        tr:hover { background-color: rgba(255, 255, 255, 0.02); }
+
+        .status-pill { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
+        .status-pill.online { background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }
+        .status-pill.offline { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+        .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+        .status-pill.online .dot { background-color: #4ade80; box-shadow: 0 0 8px #4ade80; }
+        .status-pill.offline .dot { background-color: #f87171; }
+
+        .user-name { font-weight: 600; color: #ffffff; }
+        .user-id { font-family: monospace; color: var(--text-muted); font-size: 13px; }
+        
+        .val-money { color: #facc15; font-weight: 600; font-family: monospace; }
+        .val-speed { color: #38bdf8; font-weight: 600; font-family: monospace; }
+        .val-pet { color: #f87171; font-weight: 600; font-family: monospace; }
+
+        .sort-btn { background: #334155; color: #f8fafc; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; margin-left: 4px; }
+        .sort-btn:hover { background: #475569; }
+
+        .btn-delete { background-color: rgba(239, 68, 68, 0.1); color: var(--danger-color); border: 1px solid rgba(239, 68, 68, 0.2); padding: 6px 12px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; transition: all 0.2s; }
+        .btn-delete:hover { background-color: var(--danger-color); color: white; }
+
+        .btn-delete-device { background-color: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); padding: 4px 10px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; transition: all 0.2s; }
+        .btn-delete-device:hover { background-color: var(--danger-color); color: white; }
+
+        .empty-state { text-align: center; padding: 48px; color: var(--text-muted); background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border-color); }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>DangMinhNhat Dashboard</h1>
+        <div class="stats-container">
+            <div class="stat-card">TỔNG MÁY: <span id="stat-devices">0</span></div>
+            <div class="stat-card">ONLINE: <span id="stat-online" style="color: #4ade80;">0</span></div>
+            <div class="stat-card">TỔNG ACC: <span id="stat-accs">0</span></div>
+        </div>
+    </div>
+
+    <div id="dashboard-content"></div>
+
+    <script>
+        let sortStates = {
+            money: 0,
+            speed: 0,
+            pet: 0
+        };
+
+        function toggleSort(type) {
+            for (let key in sortStates) {
+                if (key === type) {
+                    sortStates[key] = (sortStates[key] + 1) % 3;
+                } else {
+                    sortStates[key] = 0;
+                }
+            }
+            updateDashboard();
+        }
+
+        function getSortIcon(state) {
+            if (state === 1) return "⬆";
+            if (state === 2) return "⬇";
+            return "↕";
+        }
+
+        function updateDashboard() {
+            fetch('/api/data')
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('stat-devices').innerText = data.total_devices;
+                    document.getElementById('stat-online').innerText = data.total_online;
+                    document.getElementById('stat-accs').innerText = data.total_accs;
+
+                    let container = document.getElementById('dashboard-content');
+                    if (Object.keys(data.grouped).length === 0) {
+                        container.innerHTML = `
+                            <div class="empty-state">
+                                <h3>Chưa có dữ liệu account nào</h3>
+                                <p style="margin-top: 8px;">Vui lòng chạy Script Roblox trên thiết bị để đồng bộ dữ liệu.</p>
+                            </div>`;
+                        return;
+                    }
+
+                    let currentDeviceCardIds = Object.keys(data.grouped).map(d => `device-card-${d.replace(/\\s+/g, '_')}`);
+                    document.querySelectorAll('.device-card').forEach(card => {
+                        if (!currentDeviceCardIds.includes(card.id)) {
+                            card.remove();
+                        }
+                    });
+
+                    for (let device in data.grouped) {
+                        let accs = data.grouped[device];
+
+                        if (sortStates.money !== 0) {
+                            accs.sort((a, b) => sortStates.money === 1 ? b.money_val - a.money_val : a.money_val - b.money_val);
+                        } else if (sortStates.speed !== 0) {
+                            accs.sort((a, b) => sortStates.speed === 1 ? b.speed_val - a.speed_val : a.speed_val - b.speed_val);
+                        } else if (sortStates.pet !== 0) {
+                            accs.sort((a, b) => sortStates.pet === 1 ? b.pet_val - a.pet_val : a.pet_val - b.pet_val);
+                        }
+
+                        let cardId = `device-card-${device.replace(/\\s+/g, '_')}`;
+                        let card = document.getElementById(cardId);
+
+                        if (!card) {
+                            let cardHtml = `
+                            <div class="device-card" id="${cardId}">
+                                <div class="device-header">
+                                    <div class="device-title">💻 THIẾT BỊ: ${device}</div>
+                                    <div class="device-actions">
+                                        <div class="badge" id="badge-${cardId}">${accs.length} Account</div>
+                                        <button class="btn-delete-device" onclick="deleteDevice('${device}')">Xóa Máy</button>
+                                    </div>
+                                </div>
+                                <div class="table-responsive">
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th>Trạng thái</th>
+                                                <th>Tài khoản</th>
+                                                <th>User ID</th>
+                                                <th>
+                                                    Money 
+                                                    <button class="sort-btn" id="sort-money-${cardId}" onclick="toggleSort('money')">${getSortIcon(sortStates.money)}</button>
+                                                </th>
+                                                <th>
+                                                    Speed 
+                                                    <button class="sort-btn" id="sort-speed-${cardId}" onclick="toggleSort('speed')">${getSortIcon(sortStates.speed)}</button>
+                                                </th>
+                                                <th>
+                                                    Top Pet 
+                                                    <button class="sort-btn" id="sort-pet-${cardId}" onclick="toggleSort('pet')">${getSortIcon(sortStates.pet)}</button>
+                                                </th>
+                                                <th>Cập nhật</th>
+                                                <th style="text-align: right;">Hành động</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="tbody-${cardId}"></tbody>
+                                    </table>
+                                </div>
+                            </div>`;
+                            container.insertAdjacentHTML('beforeend', cardHtml);
+                        } else {
+                            document.getElementById(`badge-${cardId}`).innerText = `${accs.length} Account`;
+                            document.getElementById(`sort-money-${cardId}`).innerText = getSortIcon(sortStates.money);
+                            document.getElementById(`sort-speed-${cardId}`).innerText = getSortIcon(sortStates.speed);
+                            document.getElementById(`sort-pet-${cardId}`).innerText = getSortIcon(sortStates.pet);
+                        }
+
+                        let tbody = document.getElementById(`tbody-${cardId}`);
+
+                        let currentAccRowIds = accs.map(a => `row-${a.username}`);
+                        tbody.querySelectorAll('tr').forEach(row => {
+                            if (!currentAccRowIds.includes(row.id)) {
+                                row.remove();
+                            }
+                        });
+
+                        accs.forEach(acc => {
+                            let rowId = `row-${acc.username}`;
+                            let row = document.getElementById(rowId);
+
+                            let statusBadge = acc.is_online 
+                                ? `<span class="status-pill online"><span class="dot"></span> ON</span>`
+                                : `<span class="status-pill offline"><span class="dot"></span> OFF</span>`;
+
+                            if (!row) {
+                                let rowHtml = `
+                                <tr id="${rowId}">
+                                    <td class="col-status">${statusBadge}</td>
+                                    <td><div class="user-name">${acc.username}</div></td>
+                                    <td><span class="user-id">#${acc.id}</span></td>
+                                    <td class="val-money col-money">${acc.money}</td>
+                                    <td class="val-speed col-speed">${acc.speed}</td>
+                                    <td class="val-pet col-pet">${acc.pet}</td>
+                                    <td class="col-updated" style="color: var(--text-muted); font-size: 13px;">${acc.updated}</td>
+                                    <td style="text-align: right;">
+                                        <button class="btn-delete" onclick="deleteAcc('${acc.username}')">Xóa</button>
+                                    </td>
+                                </tr>`;
+                                tbody.insertAdjacentHTML('beforeend', rowHtml);
+                                row = document.getElementById(rowId);
+                            } else {
+                                row.querySelector('.col-status').innerHTML = statusBadge;
+                                row.querySelector('.col-money').innerText = acc.money;
+                                row.querySelector('.col-speed').innerText = acc.speed;
+                                row.querySelector('.col-pet').innerText = acc.pet;
+                                row.querySelector('.col-updated').innerText = acc.updated;
+                            }
+
+                            tbody.appendChild(row);
+                        });
+                    }
+                });
+        }
+
+        function deleteAcc(username) {
+            if (confirm("Xác nhận xóa tài khoản: " + username + "?")) {
+                fetch('/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: username })
+                }).then(() => {
+                    let row = document.getElementById(`row-${username}`);
+                    if (row) row.remove();
+                    updateDashboard();
+                });
+            }
+        }
+
+        function deleteDevice(deviceName) {
+            if (confirm("Xác nhận XÓA MÁY [" + deviceName + "] và TẤT CẢ TÀI KHOẢN thuộc máy này?")) {
+                fetch('/delete_device', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ device: deviceName })
+                }).then(() => {
+                    let cardId = `device-card-${deviceName.replace(/\\s+/g, '_')}`;
+                    let card = document.getElementById(cardId);
+                    if (card) card.remove();
+                    updateDashboard();
+                });
+            }
+        }
+
+        setInterval(updateDashboard, 1000);
+        updateDashboard();
+    </script>
+</body>
+</html>
+"""
+
+@app.route('/')
+def index():
+    return render_template_string(HTML_TEMPLATE)
+
+@app.route('/api/data')
+def get_data():
+    now = time.time()
+    grouped_accounts = {}
+    total_online = 0
+
+    for user, data in accounts.items():
+        device = data.get('device', 'Chưa phân loại')
+        if device not in grouped_accounts:
+            grouped_accounts[device] = []
+        
+        # Đã tăng giới hạn lên 10 giây để chống nhảy ON/OFF liên tục khi mạng lag nhẹ
+        is_online = (now - data.get('last_seen', 0)) <= 10
+        if is_online:
+            total_online += 1
+
+        acc_info = data.copy()
+        acc_info['username'] = user
+        acc_info['is_online'] = is_online
+        grouped_accounts[device].append(acc_info)
+
+    return jsonify({
+        "grouped": grouped_accounts,
+        "total_devices": len(grouped_accounts),
+        "total_online": total_online,
+        "total_accs": len(accounts)
+    })
+
+@app.route('/track', methods=['POST'])
+def track():
+    data = request.json
+    if not data or 'username' not in data:
+        return jsonify({"status": "error", "message": "Invalid payload"}), 400
+    
+    username = data.get('username')
+    old_data = accounts.get(username, {})
+
+    def get_valid_val(new_val, old_val, default="N/A"):
+        if new_val and new_val != "N/A" and str(new_val).strip() != "":
+            return new_val
+        return old_val if old_val else default
+
+    money = get_valid_val(data.get('money'), old_data.get('money'))
+    money_val = data.get('money_val') if data.get('money_val') is not None else old_data.get('money_val', 0)
+
+    speed = get_valid_val(data.get('speed'), old_data.get('speed'))
+    speed_val = data.get('speed_val') if data.get('speed_val') is not None else old_data.get('speed_val', 0)
+
+    pet = get_valid_val(data.get('pet'), old_data.get('pet'))
+    pet_val = data.get('pet_val') if data.get('pet_val') is not None else old_data.get('pet_val', 0)
+
+    accounts[username] = {
+        'id': data.get('user_id') or old_data.get('id', 'N/A'),
+        'money': money,
+        'money_val': money_val,
+        'speed': speed,
+        'speed_val': speed_val,
+        'pet': pet,
+        'pet_val': pet_val,
+        'device': data.get('device') or old_data.get('device', 'Máy Mặc Định'),
+        'updated': data.get('time') or old_data.get('updated', 'N/A'),
+        'last_seen': time.time()
+    }
+    return jsonify({"status": "success"}), 200
+
+@app.route('/delete', methods=['POST'])
+def delete_account():
+    data = request.json
+    username = data.get('username')
+    if username in accounts:
+        del accounts[username]
+        return jsonify({"status": "success"}), 200
+    return jsonify({"status": "error", "message": "User not found"}), 404
+
+@app.route('/delete_device', methods=['POST'])
+def delete_device():
+    data = request.json
+    device_to_delete = data.get('device')
+    if not device_to_delete:
+        return jsonify({"status": "error", "message": "Missing device name"}), 400
+
+    global accounts
+    accounts = {user: acc for user, acc in accounts.items() if acc.get('device') != device_to_delete}
+    return jsonify({"status": "success"}), 200
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
