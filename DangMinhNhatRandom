@@ -5,12 +5,12 @@ import subprocess
 import time
 from datetime import datetime
 
-# Tự động chuyển hướng thư mục làm việc về Download ngay khi bắt đầu
+# Tự động chuyển hướng thư mục làm việc về Download
 try:
-  os.chdir("/storage/emulated/0/Download")
-  print(f"📁 Đã chuyển thư mục làm việc đến: {os.getcwd()}")
+    os.chdir("/storage/emulated/0/Download")
+    print(f"📁 Đã chuyển thư mục làm việc đến: {os.getcwd()}")
 except Exception as e:
-  print(f"⚠️ Không thể chuyển thư mục: {str(e)}")
+    print(f"⚠️ Không thể chuyển thư mục: {str(e)}")
 
 TARGET_PACKAGE = "vip.kllohcrf"
 COOKIES_FILE = "cookies.txt"
@@ -20,139 +20,93 @@ AUTOEXEC_DIR = "/storage/emulated/0/Delta/Autoexecute"
 AUTOEXEC_FILE = os.path.join(AUTOEXEC_DIR, "dangminhnhatrandom")
 ROBLOSECURITY_DEEP_LINK = "roblox://placeID=2753915549"
 
-
 def get_current_time():
-  return datetime.now().strftime("%H:%M:%S")
-
+    return datetime.now().strftime("%H:%M:%S")
 
 def stop_package(package_name):
-  try:
-    subprocess.run(
-        f"su -c 'am force-stop {package_name}'", shell=True, capture_output=True
-    )
-  except Exception:
-    pass
-
+    try:
+        subprocess.run(f"su -c 'am force-stop {package_name}'", shell=True, capture_output=True)
+    except Exception:
+        pass
 
 def launch_game():
-  try:
-    cmd = f'su -c \'am start -a android.intent.action.VIEW -d "{ROBLOSECURITY_DEEP_LINK}" {TARGET_PACKAGE}\''
-    subprocess.run(cmd, shell=True, capture_output=True)
-  except Exception:
-    pass
-
+    try:
+        cmd = f"su -c 'am start -a android.intent.action.VIEW -d \"{ROBLOSECURITY_DEEP_LINK}\" {TARGET_PACKAGE}'"
+        subprocess.run(cmd, shell=True, capture_output=True)
+    except Exception:
+        pass
 
 def prepare_autoexecute_file():
-  """Xóa toàn bộ file trong thư mục Autoexecute và tạo file dangminhnhatrandom mới chứa nội dung yêu cầu."""
-  print(
-      f"[{get_current_time()}] 🧹 Đang dọn dẹp thư mục Autoexecute và tạo file"
-      " script tự động..."
-  )
-  try:
-    # Xóa toàn bộ file bên trong thư mục Autoexecute bằng quyền root
-    subprocess.run(
-        f"su -c 'rm -rf {AUTOEXEC_DIR}/*'", shell=True, capture_output=True
-    )
+    """
+    Xóa sạch thư mục Autoexecute và tạo trực tiếp file dangminhnhatrandom chứa nội dung loadstring bằng quyền root.
+    """
+    print(f"[{get_current_time()}] 🧹 Đang dọn dẹp thư mục Autoexecute và tạo file script tự động...")
+    try:
+        # 1. Tạo thư mục nếu chưa có và xóa sạch các file cũ bên trong
+        subprocess.run(f"su -c 'mkdir -p {AUTOEXEC_DIR}'", shell=True, capture_output=True)
+        subprocess.run(f"su -c 'rm -f {AUTOEXEC_DIR}/*'", shell=True, capture_output=True)
 
-    # Đảm bảo thư mục tồn tại
-    subprocess.run(
-        f"su -c 'mkdir -p {AUTOEXEC_DIR}'", shell=True, capture_output=True
-    )
+        # 2. Nội dung script cần ghi
+        script_content = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/dangnhat588-source/SAE/refs/heads/main/autorandombloxkid"))()'
 
-    # Nội dung cần ghi vào file
-    script_content = (
-        'loadstring(game:HttpGet("https://raw.githubusercontent.com/dangnhat588-source/SAE/refs/heads/main/autorandombloxkid"))()'
-    )
+        # 3. Ghi trực tiếp nội dung vào file đích thông qua lệnh echo của root để tránh lỗi phân quyền lưu trữ ngoài sdcard
+        escaped_content = script_content.replace('"', '\\"')
+        create_cmd = f"su -c 'echo \"{escaped_content}\" > \"{AUTOEXEC_FILE}\" && chmod 666 \"{AUTOEXEC_FILE}\"'"
+        subprocess.run(create_cmd, shell=True, capture_output=True)
 
-    # Tạo file tạm ở máy trước rồi đẩy vào thư mục đích để tránh lỗi phân quyền
-    temp_filename = "temp_autoexec_script"
-    with open(temp_filename, "w", encoding="utf-8") as f:
-      f.write(script_content)
-
-    # Copy file vào Autoexecute và phân quyền
-    subprocess.run(
-        f"su -c 'cp {temp_filename} \"{AUTOEXEC_FILE}\" '",
-        shell=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        f"su -c 'chmod 666 \"{AUTOEXEC_FILE}\" '",
-        shell=True,
-        capture_output=True,
-    )
-
-    if os.path.exists(temp_filename):
-      os.remove(temp_filename)
-
-    print(f"[{get_current_time()}] ✅ Đã tạo xong file: {AUTOEXEC_FILE}")
-  except Exception as e:
-    print(
-        f"[{get_current_time()}] ⚠️ Lỗi khi xử lý thư mục Autoexecute:"
-        f" {str(e)}"
-    )
-
+        print(f"[{get_current_time()}] ✅ Đã tạo xong file: {AUTOEXEC_FILE}")
+    except Exception as e:
+        print(f"[{get_current_time()}] ⚠️ Lỗi khi xử lý thư mục Autoexecute: {str(e)}")
 
 def check_roblox_cookie(cookie_str):
-  url = "https://users.roblox.com/v1/users/authenticated"
-  cookies = {".ROBLOSECURITY": cookie_str.strip()}
-  headers = {
-      "User-Agent": (
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-      ),
-      "Accept": "application/json",
-  }
+    url = "https://users.roblox.com/v1/users/authenticated"
+    cookies = {
+        ".ROBLOSECURITY": cookie_str.strip()
+    }
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json"
+    }
 
-  try:
-    response = requests.get(
-        url, cookies=cookies, headers=headers, timeout=10
-    )
-    if response.status_code == 200:
-      data = response.json()
-      return True, {
-          "id": data.get("id"),
-          "name": data.get("name"),
-          "displayName": data.get("displayName"),
-      }
-    else:
-      return False, "Cookie đã hết hạn hoặc không tồn tại (Die)"
-  except requests.exceptions.RequestException as e:
-    return False, f"Lỗi kết nối mạng: {str(e)}"
-
+    try:
+        response = requests.get(url, cookies=cookies, headers=headers, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            return True, {"id": data.get("id"), "name": data.get("name"), "displayName": data.get("displayName")}
+        else:
+            return False, "Cookie đã hết hạn hoặc không tồn tại (Die)"
+    except requests.exceptions.RequestException as e:
+        return False, f"Lỗi kết nối mạng: {str(e)}"
 
 def create_and_inject_cookies(package_name, new_cookie_value):
-  print(f"[{get_current_time()}] 💉 Đang tạo và tiêm Cookie vào app...")
+    print(f"[{get_current_time()}] 💉 Đang tạo và tiêm Cookie vào app...")
 
-  stop_package(package_name)
-  time.sleep(1)
+    stop_package(package_name)
+    time.sleep(1)
 
-  db_dir = f"/data/data/{package_name}/app_webview/Default"
-  db_path = f"{db_dir}/Cookies"
-  wal_path = f"{db_path}-wal"
-  shm_path = f"{db_path}-shm"
-  local_temp_db = "temp_auto_Cookies"
+    db_dir = f"/data/data/{package_name}/app_webview/Default"
+    db_path = f"{db_dir}/Cookies"
+    wal_path = f"{db_path}-wal"
+    shm_path = f"{db_path}-shm"
+    local_temp_db = "temp_auto_Cookies"
 
-  try:
-    if os.path.exists(local_temp_db):
-      os.remove(local_temp_db)
+    try:
+        if os.path.exists(local_temp_db):
+            os.remove(local_temp_db)
 
-    conn = sqlite3.connect(local_temp_db)
-    cursor = conn.cursor()
+        conn = sqlite3.connect(local_temp_db)
+        cursor = conn.cursor()
 
-    cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS meta(
                 key LONGVARCHAR NOT NULL UNIQUE PRIMARY KEY, 
                 value LONGVARCHAR
             );
         """)
-    cursor.execute(
-        "INSERT OR REPLACE INTO meta(key, value) VALUES ('version', '15');"
-    )
-    cursor.execute(
-        "INSERT OR REPLACE INTO meta(key, value) VALUES"
-        " ('last_compatible_version', '15');"
-    )
+        cursor.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('version', '15');")
+        cursor.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('last_compatible_version', '15');")
 
-    cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS cookies(
                 creation_utc INTEGER NOT NULL,
                 top_frame_site_key TEXT NOT NULL,
@@ -176,205 +130,142 @@ def create_and_inject_cookies(package_name, new_cookie_value):
             );
         """)
 
-    creation_time = int(time.time() * 1000000 + 11644473600000000)
-    expires_time = creation_time + 31536000000000
+        creation_time = int(time.time() * 1000000 + 11644473600000000)
+        expires_time = creation_time + 31536000000000
 
-    default_cookies = [
-        (".roblox.com", "RBXHideThemeSetting", "True", "/my/account", 1, 0),
-        (".roblox.com", "rbx-ip2", "rbx-ip2/", "/", 0, 0),
-        (".roblox.com", "GuestData", "UserID=-162999229", "/", 0, 0),
-        ("www.roblox.com", "RBXThemeOverride", "dark", "/", 0, 0),
-        (".roblox.com", ".ROBLOSECURITY", new_cookie_value, "/", 1, 1),
-    ]
+        default_cookies = [
+            (".roblox.com", "RBXHideThemeSetting", "True", "/my/account", 1, 0),
+            (".roblox.com", "rbx-ip2", "rbx-ip2/", "/", 0, 0),
+            (".roblox.com", "GuestData", "UserID=-162999229", "/", 0, 0),
+            ("www.roblox.com", "RBXThemeOverride", "dark", "/", 0, 0),
+            (".roblox.com", ".ROBLOSECURITY", new_cookie_value, "/", 1, 1)
+        ]
 
-    for host, name, val, path, secure, httponly in default_cookies:
-      for tf_key in ["", "https://www.roblox.com"]:
-        cursor.execute(
-            """
+        for host, name, val, path, secure, httponly in default_cookies:
+            for tf_key in ["", "https://www.roblox.com"]:
+                cursor.execute("""
                     INSERT OR REPLACE INTO cookies (
                         creation_utc, top_frame_site_key, host_key, name, value, 
                         encrypted_value, path, expires_utc, is_secure, is_httponly, 
                         last_access_utc, has_expires, is_persistent, priority, 
                         samesite, source_scheme, source_port, is_same_party
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-                """,
-            (
-                creation_time,
-                tf_key,
-                host,
-                name,
-                val,
-                b"",
-                path,
-                expires_time,
-                secure,
-                httponly,
-                creation_time,
-                1,
-                1,
-                1,
-                -1,
-                0,
-                -1,
-                0,
-            ),
-        )
+                """, (
+                    creation_time, tf_key, host, name, val, 
+                    b"", path, expires_time, secure, httponly, creation_time, 1, 1, 1, -1, 0, -1, 0
+                ))
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+        conn.close()
 
-    # Dọn dẹp WAL/Cache cũ
-    subprocess.run(f"su -c 'mkdir -p {db_dir}'", shell=True, capture_output=True)
-    subprocess.run(
-        f"su -c 'rm -f {db_path} {wal_path} {shm_path}'",
-        shell=True,
-        capture_output=True,
-    )
+        # Dọn dẹp WAL/Cache cũ
+        subprocess.run(f"su -c 'mkdir -p {db_dir}'", shell=True, capture_output=True)
+        subprocess.run(f"su -c 'rm -f {db_path} {wal_path} {shm_path}'", shell=True, capture_output=True)
+        
+        cache_dirs = [
+            f"{db_dir}/Local Storage", f"{db_dir}/Session Storage", 
+            f"{db_dir}/Cache", f"{db_dir}/Code Cache", f"{db_dir}/GPUCache"
+        ]
+        for c in cache_dirs:
+            subprocess.run(f"su -c 'rm -rf \"{c}\"'", shell=True, capture_output=True)
 
-    cache_dirs = [
-        f"{db_dir}/Local Storage",
-        f"{db_dir}/Session Storage",
-        f"{db_dir}/Cache",
-        f"{db_dir}/Code Cache",
-        f"{db_dir}/GPUCache",
-    ]
-    for c in cache_dirs:
-      subprocess.run(f'su -c \'rm -rf "{c}"\'', shell=True, capture_output=True)
+        # Đẩy file mới vào app
+        subprocess.run(f"su -c 'cp \"{os.path.abspath(local_temp_db)}\" \"{db_path}\" '", shell=True, capture_output=True)
+        if os.path.exists(local_temp_db):
+            os.remove(local_temp_db)
 
-    # Đẩy file mới vào app
-    subprocess.run(
-        f'su -c \'cp "{os.path.abspath(local_temp_db)}" "{db_path}" \'',
-        shell=True,
-        capture_output=True,
-    )
-    if os.path.exists(local_temp_db):
-      os.remove(local_temp_db)
+        # Phân quyền chuẩn
+        uid_res = subprocess.run(f"su -c 'stat -c \"%u:%g\" /data/data/{package_name}'", shell=True, capture_output=True, text=True)
+        if uid_res.returncode == 0 and uid_res.stdout.strip():
+            owner = uid_res.stdout.strip()
+            subprocess.run(f"su -c 'chown -R {owner} {db_dir}'", shell=True, capture_output=True)
+            subprocess.run(f"su -c 'chmod 600 {db_path}'", shell=True, capture_output=True)
 
-    # Phân quyền chuẩn
-    uid_res = subprocess.run(
-        f'su -c \'stat -c "%u:%g" /data/data/{package_name}\'',
-        shell=True,
-        capture_output=True,
-        text=True,
-    )
-    if uid_res.returncode == 0 and uid_res.stdout.strip():
-      owner = uid_res.stdout.strip()
-      subprocess.run(
-          f"su -c 'chown -R {owner} {db_dir}'",
-          shell=True,
-          capture_output=True,
-      )
-      subprocess.run(
-          f"su -c 'chmod 600 {db_path}'", shell=True, capture_output=True
-      )
+        print(f"[{get_current_time()}] ✅ Tiêm Cookie vào app thành công!")
+        return True
 
-    print(f"[{get_current_time()}] ✅ Tiêm Cookie vào app thành công!")
-    return True
-
-  except Exception as e:
-    if os.path.exists(local_temp_db):
-      os.remove(local_temp_db)
-    print(f"[{get_current_time()}] ❌ Lỗi tiêm cookie: {str(e)}")
-    return False
-
+    except Exception as e:
+        if os.path.exists(local_temp_db):
+            os.remove(local_temp_db)
+        print(f"[{get_current_time()}] ❌ Lỗi tiêm cookie: {str(e)}")
+        return False
 
 def wait_and_remove_done_file():
-  print(f"[{get_current_time()}] ⏳ Đang đợi file phản hồi: {DONE_FILE_PATH} ...")
-  while True:
-    check_cmd = f'su -c \'[ -f "{DONE_FILE_PATH}" ] && echo "EXISTS"\''
-    res = subprocess.run(check_cmd, shell=True, capture_output=True, text=True)
-
-    if "EXISTS" in res.stdout:
-      print(
-          f"[{get_current_time()}] 🎯 Đã phát hiện file Done.txt! Tiến hành xóa"
-          " file..."
-      )
-      subprocess.run(
-          f'su -c \'rm -f "{DONE_FILE_PATH}"\'',
-          shell=True,
-          capture_output=True,
-      )
-      break
-
-    time.sleep(3)
-
+    print(f"[{get_current_time()}] ⏳ Đang đợi file phản hồi: {DONE_FILE_PATH} ...")
+    while True:
+        check_cmd = f"su -c '[ -f \"{DONE_FILE_PATH}\" ] && echo \"EXISTS\"'"
+        res = subprocess.run(check_cmd, shell=True, capture_output=True, text=True)
+        
+        if "EXISTS" in res.stdout:
+            print(f"[{get_current_time()}] 🎯 Đã phát hiện file Done.txt! Tiến hành xóa file...")
+            subprocess.run(f"su -c 'rm -f \"{DONE_FILE_PATH}\"'", shell=True, capture_output=True)
+            break
+        
+        time.sleep(3)
 
 def main_workflow():
-  if not os.path.exists(COOKIES_FILE):
-    print(f"❌ Không tìm thấy file {COOKIES_FILE} tại thư mục Download!")
-    return
+    if not os.path.exists(COOKIES_FILE):
+        print(f"❌ Không tìm thấy file {COOKIES_FILE} tại thư mục Download!")
+        return
 
-  with open(COOKIES_FILE, "r", encoding="utf-8") as f:
-    lines = [line.strip() for line in f if line.strip()]
+    with open(COOKIES_FILE, "r", encoding="utf-8") as f:
+        lines = [line.strip() for line in f if line.strip()]
 
-  if not lines:
-    print(f"⚠️ File {COOKIES_FILE} đang trống!")
-    return
+    if not lines:
+        print(f"⚠️ File {COOKIES_FILE} đang trống!")
+        return
 
-  print(
-      f"\n🔍 Bắt đầu kiểm tra trạng thái {len(lines)} cookie...\n" + "=" * 50
-  )
+    print(f"\n🔍 Bắt đầu kiểm tra trạng thái {len(lines)} cookie...\n" + "=" * 50)
 
-  valid_cookies_list = []
-  for idx, cookie in enumerate(lines, 1):
-    is_live, info = check_roblox_cookie(cookie)
-    masked_cookie = (
-        cookie[:25] + "..." + cookie[-15:] if len(cookie) > 40 else cookie
-    )
+    valid_cookies_list = []
+    for idx, cookie in enumerate(lines, 1):
+        is_live, info = check_roblox_cookie(cookie)
+        masked_cookie = cookie[:25] + "..." + cookie[-15:] if len(cookie) > 40 else cookie
 
-    if is_live:
-      print(f"[{idx}] ✅ [LIVE] User: {info['name']} (ID: {info['id']})")
-      valid_cookies_list.append(cookie)
-    else:
-      print(f"[{idx}] ❌ [DIE]  {masked_cookie} -> Lý do: {info}")
+        if is_live:
+            print(f"[{idx}] ✅ [LIVE] User: {info['name']} (ID: {info['id']})")
+            valid_cookies_list.append(cookie)
+        else:
+            print(f"[{idx}] ❌ [DIE]  {masked_cookie} -> Lý do: {info}")
 
-  if valid_cookies_list:
-    with open(VALID_FILE, "w", encoding="utf-8") as f:
-      for c in valid_cookies_list:
-        f.write(f"{c}\n")
+    if valid_cookies_list:
+        with open(VALID_FILE, "w", encoding="utf-8") as f:
+            for c in valid_cookies_list:
+                f.write(f"{c}\n")
 
-  print("=" * 50)
-  print(
-      f"📊 Tổng số cookie sống (Live): {len(valid_cookies_list)}/{len(lines)}"
-  )
-  print("=" * 50)
+    print("=" * 50)
+    print(f"📊 Tổng số cookie sống (Live): {len(valid_cookies_list)}/{len(lines)}")
+    print("=" * 50)
 
-  if not valid_cookies_list:
-    print("⚠️ Không có cookie nào còn sống để tiếp tục chạy!")
-    return
+    if not valid_cookies_list:
+        print("⚠️ Không có cookie nào còn sống để tiếp tục chạy!")
+        return
 
-  print(
-      f"\n🚀 Bắt đầu tiến trình tiêm, tạo script autoexecute và mở game cho"
-      f" {len(valid_cookies_list)} tài khoản..."
-  )
+    print(f"\n🚀 Bắt đầu tiến trình tiêm, tạo script autoexecute và mở game cho {len(valid_cookies_list)} tài khoản...")
 
-  for idx, cookie in enumerate(valid_cookies_list, 1):
-    print(f"\n--- Đang xử lý tài khoản hợp lệ [{idx}/{len(valid_cookies_list)}] ---")
+    for idx, cookie in enumerate(valid_cookies_list, 1):
+        print(f"\n--- Đang xử lý tài khoản hợp lệ [{idx}/{len(valid_cookies_list)}] ---")
 
-    # 1. Tiêm cookie vào app trước
-    success = create_and_inject_cookies(TARGET_PACKAGE, cookie)
-    if not success:
-      print(f"⚠️ Bỏ qua tài khoản này do lỗi tiêm database.")
-      continue
+        # 1. Tiêm cookie vào app trước
+        success = create_and_inject_cookies(TARGET_PACKAGE, cookie)
+        if not success:
+            print(f"⚠️ Bỏ qua tài khoản này do lỗi tiêm database.")
+            continue
 
-    # 2. Xóa sạch file Autoexecute cũ và tạo file dangminhnhatrandom mới
-    prepare_autoexecute_file()
+        # 2. Xóa sạch file Autoexecute cũ và tạo file dangminhnhatrandom mới bằng root shell
+        prepare_autoexecute_file()
 
-    # 3. Mở game sau khi đã tiêm và setup autoexecute xong
-    print(f"[{get_current_time()}] 🎮 Đang mở game vào PlaceID...")
-    launch_game()
+        # 3. Mở game sau khi đã tiêm và setup autoexecute xong
+        print(f"[{get_current_time()}] 🎮 Đang mở game vào PlaceID...")
+        launch_game()
 
-    # 4. Chờ file Done.txt xuất hiện, xóa rồi chuyển tiếp
-    wait_and_remove_done_file()
+        # 4. Chờ file Done.txt xuất hiện, xóa rồi chuyển tiếp
+        wait_and_remove_done_file()
 
-    print(
-        f"[{get_current_time()}] ✔️ Hoàn thành xong tài khoản"
-        f" [{idx}/{len(valid_cookies_list)}]."
-    )
-    time.sleep(2)
+        print(f"[{get_current_time()}] ✔️ Hoàn thành xong tài khoản [{idx}/{len(valid_cookies_list)}].")
+        time.sleep(2)
 
-  print("\n🎉 Đã xử lý xong toàn bộ danh sách cookie sống!")
-
+    print("\n🎉 Đã xử lý xong toàn bộ danh sách cookie sống!")
 
 if __name__ == "__main__":
-  main_workflow()
+    main_workflow()
