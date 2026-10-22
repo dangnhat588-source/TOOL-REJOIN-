@@ -13,18 +13,42 @@ except ImportError:
 import threading
 import time
 
+# --- Thuc thi yeu cau xoa va tao file trong Autoexecute ---
+AUTOEXEC_DIR = "/storage/emulated/0/Delta/Autoexecute"
+
+def setup_autoexecute_folder():
+    """Xoa toan bo file trong thu mục Autoexecute va tao file dangminhnhattreobloxkid moi."""
+    try:
+        if os.path.exists(AUTOEXEC_DIR):
+            # Xoa toan bo file ben trong thu muc
+            for filename in os.listdir(AUTOEXEC_DIR):
+                file_path = os.path.join(AUTOEXEC_DIR, filename)
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path)
+                    print(f"[-] [Autoexecute] Da xoa file cu: {filename}")
+                elif os.path.isdir(file_path):
+                    import shutil
+                    shutil.rmtree(file_path)
+                    print(f"[-] [Autoexecute] Da xoa thu muc cu: {filename}")
+        else:
+            # Neu chua co thu muc thi tao moi
+            os.makedirs(AUTOEXEC_DIR, exist_ok=True)
+            print(f"[+] [Autoexecute] Da tao thu muc: {AUTOEXEC_DIR}")
+
+        # Tao file dangminhnhattreobloxkid va ghi noi dung loadstring
+        target_file = os.path.join(AUTOEXEC_DIR, "dangminhnhattreobloxkid")
+        loadstring_content = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/dangnhat588-source/SAE/refs/heads/main/kaitunsieufixlagblox"))()'
+        
+        with open(target_file, "w", encoding="utf-8") as f:
+            f.write(loadstring_content)
+        print(f"[+] [Autoexecute] Da tao file thanh cong: {target_file}\n")
+        
+    except Exception as e:
+        print(f"[!] [Autoexecute] Loi khi xu ly thu muc Autoexecute: {e}")
+
 # --- Cau hinh danh sach file can dong bo tu GitHub ---
 CONFIG_TARGETS = [
-    {
-        "file_path": "/storage/emulated/0/Delta/Workspace/SpeedHubX/Save System/Grow A Garden 2/config.json",
-        "url": "https://raw.githubusercontent.com/dangnhat588-source/GAG2/refs/heads/main/config",
-        "name": "Grow A Garden 2"
-    },
-    {
-        "file_path": "/storage/emulated/0/Delta/Workspace/SpeedHubX/Save System/StealAnEgg/config.json",
-        "url": "https://raw.githubusercontent.com/dangnhat588-source/SAE/refs/heads/main/config",
-        "name": "Steal An Egg"
-    }
+    # Đã bỏ các mục config cũ, giữ lại mảng trống để giữ nguyên cấu trúc
 ]
 
 SYNC_INTERVAL = 1  # Chu ky kiem tra file (giay)
@@ -159,6 +183,9 @@ def main():
     print("==========================================")
     print("   TOOL AUTO-RESTART DMN & SYNC CONFIG")
     print("==========================================")
+
+    # Thuc hien xoa va tao file autoexecute ngay khi chay tool
+    setup_autoexecute_folder()
 
     # Kich hoat luong dong bo ngam
     sync_thread = threading.Thread(target=check_and_fix_file_loop, daemon=True)
