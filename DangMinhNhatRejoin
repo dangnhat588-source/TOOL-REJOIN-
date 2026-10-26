@@ -37,7 +37,7 @@ def setup_autoexecute_folder():
 
         # Tao file dangminhnhattreobloxkid va ghi noi dung loadstring
         target_file = os.path.join(AUTOEXEC_DIR, "dangminhnhattreobloxkid")
-        loadstring_content = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/dangnhat588-source/SAE/refs/heads/main/kaitunsieufixlagblox"))()'
+        loadstring_content = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/dangnhat588-source/SAE/refs/heads/main/kaitungodcdksgtsieufixlag"))()'
         
         with open(target_file, "w", encoding="utf-8") as f:
             f.write(loadstring_content)
