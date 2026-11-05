@@ -1,0 +1,746 @@
+// ==UserScript==
+// @name         Reg Token Nhat
+// @namespace    http://tampermonkey.net/
+// @version      17.2.2
+// @description  Auto Register 
+// @match        https://discord.com/register*
+// @match        https://discord.com/channels/*
+// @match        https://discord.com/verify*
+// @grant        GM_xmlhttpRequest
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_deleteValue
+// @grant        GM_setClipboard
+// @connect      cheapluxurymail.xyz
+// @connect      click.discord.com
+// @connect      discord.com
+// ==/UserScript==
+
+(async () => {
+  'use strict';
+
+  const CFG = {
+    PASS: 'dgonpre92',
+    MAIL_PASS: 'CheapluxPass123@',
+    API_BASE: 'https://cheapluxurymail.xyz',
+    PREFIX: 'ndkcti',
+    INTERVAL: 4000,
+    MAX: 30,
+    INVITE_LINK: 'https://discord.gg/dQQChbMj',
+    AUTO_LOOP: true,
+    WAIT_BETWEEN_LOOPS: 90,
+    JOIN_MAX_RETRIES: 10,
+    JOIN_RETRY_DELAY: 5000,
+  };
+
+  const state = {
+    email: '',
+    user: '',
+    count: 0,
+    checking: false,
+    panelOpen: true,
+    isHandlingPhoneLock: false
+  };
+
+  let phoneCheckInterval = null;
+  let phoneObserver = null;
+  let joinPhoneInterval = null;
+
+  const saveToken = (token, email, username) => {
+    if (!token) return false;
+    let list = GM_getValue('saved_tokens_list', '[]');
+    try { list = JSON.parse(list); } catch(e) { list = []; }
+    const exists = list.some(t => t.token === token);
+    if (!exists) {
+      list.unshift({ token, email: email || 'Unknown', username: username || 'Unknown', savedAt: new Date().toISOString(), timestamp: Date.now() });
+      GM_setValue('saved_tokens_list', JSON.stringify(list));
+      let only = GM_getValue('saved_tokens_only', '');
+      const lines = only ? only.split('\n').filter(Boolean) : [];
+      if (!lines.includes(token)) { lines.unshift(token); GM_setValue('saved_tokens_only', lines.join('\n')); }
+      return true;
+    }
+    return false;
+  };
+
+  const getAllTokens = () => {
+    let list = GM_getValue('saved_tokens_list', '[]');
+    try { return JSON.parse(list); } catch(e) { return []; }
+  };
+
+  const deleteAllTokens = () => {
+    GM_setValue('saved_tokens_list', '[]');
+    GM_setValue('saved_tokens_only', '');
+    success('🗑️ Đã xóa tất cả token!');
+  };
+
+  const removeTokenFromStorage = (token) => {
+    if (!token) return false;
+    let list = GM_getValue('saved_tokens_list', '[]');
+    try { list = JSON.parse(list); } catch(e) { list = []; }
+    const newList = list.filter(item => item.token !== token);
+    GM_setValue('saved_tokens_list', JSON.stringify(newList));
+    let only = GM_getValue('saved_tokens_only', '');
+    const lines = only ? only.split('\n').filter(Boolean) : [];
+    const newOnly = lines.filter(t => t !== token).join('\n');
+    GM_setValue('saved_tokens_only', newOnly);
+    return true;
+  };
+
+  const copyToClipboard = async (text) => {
+    try { if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(text); return true; } } catch(e) {}
+    try { GM_setClipboard(text); return true; } catch(e) {}
+    return false;
+  };
+
+  const checkTokenLive = async (tk) => {
+    tk = tk.trim();
+    if (!tk) return 'die';
+    const hd = { "Authorization": tk, "Content-Type": "application/json" };
+    try {
+      const rRel = await fetch("https://discord.com/api/v9/users/@me/relationships", { headers: hd });
+      if (rRel.status === 403) { try { const j = await rRel.json(); if (j.code === 40002) return 'plock'; } catch(_) {} }
+      const r = await fetch("https://discord.com/api/v9/users/@me", { headers: hd });
+      if (r.status === 200) { const d = await r.json(); return d.verified ? 'live' : 'unverified'; }
+      else if (r.status === 403) { try { const j = await rRel.json(); if (j.code === 40002) return 'plock'; } catch(_) {} return 'die'; }
+      else return 'die';
+    } catch(e) { return 'die'; }
+  };
+
+  const runCheckLive = async () => {
+    let tokens = getAllTokens();
+    if (tokens.length === 0) { info('🔍 Không có token để quét.'); return; }
+    info(`🔍 Đang quét ${tokens.length} token...`);
+    let live = [], dead = [], plock = [], unverified = [];
+    for (let i = 0; i < tokens.length; i++) {
+      const item = tokens[i];
+      const status = await checkTokenLive(item.token);
+      if (status === 'live') live.push(item);
+      else if (status === 'unverified') { live.push(item); unverified.push(item); }
+      else if (status === 'plock') plock.push(item);
+      else dead.push(item);
+      await new Promise(r => setTimeout(r, 300));
+    }
+    GM_setValue('saved_tokens_list', JSON.stringify(live));
+    const onlyLive = live.map(t => t.token).join('\n');
+    GM_setValue('saved_tokens_only', onlyLive);
+    success(`✅ Quét xong! Giữ lại: ${live.length} (live+unverified) | Đã xóa: ${dead.length + plock.length} (die+plock)`);
+  };
+
+  const showTokenManager = () => {
+    const tokens = getAllTokens();
+    if (!tokens.length) { error('❌ Chưa có token nào!'); return; }
+    let popup = document.createElement('div');
+    popup.id = 'token-manager-popup';
+    popup.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:linear-gradient(135deg,#1e293b,#0f172a);color:white;padding:25px;border-radius:20px;z-index:1000007;min-width:550px;max-width:90vw;max-height:80vh;overflow:auto;box-shadow:0 20px 40px black;border:1px solid #f59e0b;';
+    let html = `<div style="font-weight:bold;font-size:18px;margin-bottom:15px;text-align:center">📋 DANH SÁCH TOKEN (${tokens.length})</div>`;
+    tokens.forEach((t, i) => {
+      html += `<div style="background:rgba(255,255,255,0.05);margin:10px 0;padding:12px;border-radius:12px;">
+        <div><span style="color:#4ade80">#${i+1}</span> | <span style="color:#60a5fa">${t.email}</span> | <span style="color:#fbbf24">${t.username}</span></div>
+        <div style="font-size:11px;font-family:monospace;word-break:break-all;background:#00000055;padding:6px;border-radius:8px;margin-top:5px">${t.token}</div>
+      </div>`;
+    });
+    html += `<div style="display:flex;gap:10px;margin-top:20px;flex-wrap:wrap">
+      <button id="copy-all-token" style="flex:1;background:#4ade80;border:none;padding:10px;border-radius:10px;cursor:pointer;font-weight:bold">📋 Copy All Token</button>
+      <button id="save-file-token" style="flex:1;background:#f59e0b;border:none;padding:10px;border-radius:10px;cursor:pointer;font-weight:bold">💾 Lưu File</button>
+      <button id="check-live-token" style="flex:1;background:#3b82f6;border:none;padding:10px;border-radius:10px;cursor:pointer;font-weight:bold">🔍 Check Live</button>
+      <button id="delete-all-token" style="flex:1;background:#ef4444;border:none;padding:10px;border-radius:10px;cursor:pointer;font-weight:bold">🗑️ Xóa All</button>
+      <button id="close-token-manager" style="flex:1;background:#64748b;border:none;padding:10px;border-radius:10px;cursor:pointer;font-weight:bold">❌ Đóng</button>
+    </div>`;
+    popup.innerHTML = html;
+    document.body.appendChild(popup);
+    document.getElementById('copy-all-token').onclick = async () => { const all = tokens.map(t => t.token).join('\n'); await copyToClipboard(all); success('✅ Đã copy toàn bộ token!'); };
+    document.getElementById('save-file-token').onclick = () => { const name = prompt('Tên file (không cần đuôi)', 'tokens'); if (!name) return; const content = tokens.map(t => t.token).join('\n'); const blob = new Blob([content], {type: 'text/plain'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${name}.txt`; a.click(); URL.revokeObjectURL(url); success(`✅ Đã lưu ${tokens.length} token vào ${name}.txt`); };
+    document.getElementById('check-live-token').onclick = () => { popup.remove(); runCheckLive(); };
+    document.getElementById('delete-all-token').onclick = () => { if (confirm('Xóa tất cả token?')) { deleteAllTokens(); popup.remove(); } };
+    document.getElementById('close-token-manager').onclick = () => popup.remove();
+  };
+
+  const joinServer = async () => {
+    info("🔗 Đang tìm nút 'Tham gia máy chủ'...");
+    await sleep(500);
+
+    const findJoinButton = () => {
+      const allButtons = document.querySelectorAll('button, a, div[role="button"]');
+      for (const btn of allButtons) {
+        const text = btn.textContent.trim();
+        if (text.includes('Tham gia máy chủ') || text.includes('tham gia máy chủ')) return btn;
+      }
+      const allElements = document.querySelectorAll('*');
+      for (const el of allElements) {
+        if (el.children.length === 0) {
+          const text = el.textContent.trim();
+          if (text.includes('Tham gia máy chủ') || text.includes('tham gia máy chủ')) {
+            let parent = el.parentElement;
+            while (parent) { if (parent.tagName === 'BUTTON' || parent.tagName === 'A' || parent.getAttribute('role') === 'button') return parent; parent = parent.parentElement; }
+            return el;
+          }
+        }
+      }
+      return null;
+    };
+
+    const joinBtn = findJoinButton();
+    if (!joinBtn) { error("❌ Không tìm thấy nút 'Tham gia máy chủ'!"); return false; }
+    joinBtn.click();
+    info("✅ Đã click 'Tham gia máy chủ', đợi popup...");
+    await sleep(2000);
+
+    const findInviteInput = () => {
+      const inputs = document.querySelectorAll('input[type="text"], input:not([type])');
+      for (const input of inputs) {
+        const placeholder = (input.placeholder || '').toLowerCase();
+        const ariaLabel = (input.getAttribute('aria-label') || '').toLowerCase();
+        const value = (input.value || '').toLowerCase();
+        if (placeholder.includes('liên kết') || placeholder.includes('invite') || placeholder.includes('link') || ariaLabel.includes('liên kết') || ariaLabel.includes('invite') || value.includes('discord.gg')) return input;
+      }
+      const modal = document.querySelector('[role="dialog"], [class*="modal"]');
+      if (modal) { const input = modal.querySelector('input[type="text"], input:not([type])'); if (input) return input; }
+      return null;
+    };
+
+    const inviteInput = findInviteInput();
+    if (!inviteInput) { error("❌ Không tìm thấy ô nhập 'Liên kết mời'!"); return false; }
+    setVal(inviteInput, CFG.INVITE_LINK);
+    success("✅ Đã điền link server!");
+    await sleep(1000);
+
+    const findSubmitButton = () => {
+      const allButtons = document.querySelectorAll('button');
+      for (const btn of allButtons) {
+        const text = btn.textContent.trim().toLowerCase();
+        if (text === 'tham gia' || text === 'join' || text.includes('tham gia')) { if (!btn.disabled && !btn.hasAttribute('disabled')) return btn; }
+      }
+      return null;
+    };
+
+    const submitBtn = findSubmitButton();
+    if (!submitBtn) { error("⚠️ Không tìm thấy nút 'Tham gia', vui lòng click tay!"); return false; }
+    submitBtn.click();
+    success("🎉 Đã click nút 'Tham gia'! Chờ xác nhận (có thể cần captcha)...");
+    await sleep(1500);
+    return true;
+  };
+
+  const waitForJoinCompletion = async () => {
+    return new Promise((resolve) => {
+      info("🕒 Đợi join server hoặc giải captcha (nếu có)...");
+      let startTime = Date.now();
+      const timeout = 300000;
+      const checkInterval = 3000;
+
+      const isCaptchaPresent = () => {
+        if (document.querySelector('iframe[src*="hcaptcha"], iframe[src*="recaptcha"], div[class*="captcha"]')) return true;
+        const txt = document.body.textContent;
+        if (txt.includes("captcha") || txt.includes("CAPTCHA")) return true;
+        return false;
+      };
+
+      const isJoinSuccess = () => {
+        const modal = document.querySelector('[role="dialog"], [class*="modal"]');
+        if (!modal) return true;
+        const txt = document.body.textContent;
+        if (txt.includes("Đã tham gia") || txt.includes("You joined")) return true;
+        return false;
+      };
+
+      const check = setInterval(() => {
+        if (isJoinSuccess()) {
+          clearInterval(check);
+          success("✅ Đã tham gia server thành công!");
+          resolve(true);
+        } else if (isCaptchaPresent()) {
+          info("🤖 Phát hiện captcha khi join, vui lòng giải captcha thủ công...");
+        }
+        if (Date.now() - startTime > timeout) {
+          clearInterval(check);
+          error("⏰ Quá 5 phút chưa giải captcha, vẫn sẽ reset để tạo tài khoản mới.");
+          resolve(false);
+        }
+      }, checkInterval);
+    });
+  };
+
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const $ = s => document.querySelector(s);
+  const $$ = s => document.querySelectorAll(s);
+  const getToken = () => {
+    try { const iframe = document.createElement('iframe'); document.head.append(iframe); const token = iframe.contentWindow.localStorage.token || iframe.contentWindow.sessionStorage.token; iframe.remove(); if (token) return token.replace(/"/g, ''); } catch(e) {}
+    try { return (localStorage.token || sessionStorage.token || '').replace(/"/g, ''); } catch(e) { return null; }
+  };
+  const makeToastContainer = () => {
+    if ($('#toast-container')) return;
+    const div = document.createElement('div');
+    div.id = 'toast-container';
+    div.style.cssText = `position: fixed; top: 80px; right: 20px; z-index: 999999; display: flex; flex-direction: column; gap: 12px; align-items: flex-end; font-family: 'Inter', sans-serif; pointer-events: none;`;
+    document.body.appendChild(div);
+  };
+  const toast = (msg, color, dur = 4000) => {
+    makeToastContainer();
+    const el = document.createElement('div');
+    el.style.cssText = `background: ${color}; color: #fff; padding: 12px 20px; border-radius: 12px; font-weight: 600; font-size: 13px; box-shadow: 0 8px 24px rgba(0,0,0,.3); opacity: 0; transform: translateY(-20px); transition: all .4s; pointer-events: auto; cursor: pointer; min-width: 240px;`;
+    el.innerHTML = msg;
+    el.onclick = () => el.remove();
+    $('#toast-container').appendChild(el);
+    requestAnimationFrame(() => { el.style.opacity = '1'; el.style.transform = 'translateY(0)'; });
+    setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 400); }, dur);
+  };
+  const info = msg => toast(msg, 'linear-gradient(135deg,#3b82f6,#60a5fa)');
+  const success = msg => toast(msg, 'linear-gradient(135deg,#10b981,#34d399)');
+  const error = msg => toast(msg, 'linear-gradient(135deg,#ef4444,#f87171)');
+  const api = (method, url, data) => new Promise(resolve => {
+    GM_xmlhttpRequest({ method, url, timeout: 10000, headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, data: data ? JSON.stringify(data) : undefined, onload: r => { try { resolve({ ok: true, data: JSON.parse(r.responseText) }); } catch { resolve({ ok: false }); } }, onerror: () => resolve({ ok: false }) });
+  });
+  const genUsername = () => `${CFG.PREFIX}${Array(6).fill().map(() => 'abcdefghijklmnopqrstuvwxyz0123456789'[~~(Math.random() * 36)]).join('')}`;
+
+  const setVal = (el, val) => {
+    if (!el) return;
+    const descriptor = Object.getOwnPropertyDescriptor(el.__proto__, 'value');
+    if (descriptor && descriptor.set) { descriptor.set.call(el, val); el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }
+  };
+  const selDD = async (sel, txt) => {
+    const dd = $(sel);
+    if (!dd) return false;
+    dd.click();
+    await sleep(300);
+    let opt = Array.from($$('div[role="option"]')).find(o => o.textContent.trim().toLowerCase() === txt.toLowerCase());
+    if (!opt) {
+      const listbox = $('div[role="listbox"]');
+      if (listbox) {
+        const allOpts = Array.from($$('div[role="option"]'));
+        opt = allOpts.find(o => o.textContent.trim().toLowerCase() === txt.toLowerCase());
+        if (!opt && allOpts.length > 0) { allOpts[allOpts.length - 1].scrollIntoView(); await sleep(200); opt = Array.from($$('div[role="option"]')).find(o => o.textContent.trim().toLowerCase() === txt.toLowerCase()); }
+      }
+    }
+    if (opt) { opt.scrollIntoView({ block: 'center' }); await sleep(100); opt.click(); await sleep(100); return true; }
+    return false;
+  };
+  const fillDOB = async () => {
+    const day = (1 + ~~(Math.random() * 28)).toString();
+    const monthIdx = 1 + ~~(Math.random() * 12);
+    let year;
+    if (CFG.FIXED_YEAR) { year = CFG.FIXED_YEAR.toString(); info(`📅 Dùng năm cố định: ${year}`); }
+    else { year = (2009 + ~~(Math.random() * 2)).toString(); }
+    await selDD('div[aria-label*="Ngày"], div[aria-label*="Day"]', day);
+    await sleep(100);
+    const monthLabels = [`tháng ${monthIdx}`, new Date(2000, monthIdx - 1).toLocaleString('en', { month: 'long' })];
+    let monthSet = false;
+    for (const label of monthLabels) { if (await selDD('div[aria-label*="Tháng"], div[aria-label*="Month"]', label)) { monthSet = true; break; } }
+    if (!monthSet) console.warn('⚠️ Không chọn được tháng');
+    await sleep(100);
+    await selDD('div[aria-label*="Năm"], div[aria-label*="Year"]', year);
+  };
+  const tickCheckbox = async () => {
+    let checkbox = $('input[type="checkbox"]');
+    if (checkbox && !checkbox.checked) { checkbox.click(); await sleep(300); return true; }
+    checkbox = $('div[role="checkbox"]');
+    if (checkbox && checkbox.getAttribute('aria-checked') !== 'true') { checkbox.click(); await sleep(300); return true; }
+    const buttons = Array.from($$('button'));
+    const termsBtn = buttons.find(btn => { const label = (btn.getAttribute('aria-label') || '').toLowerCase(); const text = btn.textContent.trim().toLowerCase(); return ['terms', 'privacy', 'điều khoản', 'đồng ý'].some(term => label.includes(term) || text.includes(term)); });
+    if (termsBtn) { termsBtn.click(); await sleep(300); return true; }
+    return false;
+  };
+  const submitForm = async () => {
+    let btn = $('button[type="submit"]');
+    if (!btn) { const buttons = Array.from($$('button')); btn = buttons.find(b => { const text = b.textContent.trim().toLowerCase(); return ['continue', 'tiếp tục', 'đăng ký', 'register'].some(t => text.includes(t)); }); }
+    if (btn) { btn.click(); return true; }
+    return false;
+  };
+
+  const fetchDomains = async () => {
+    const res = await api('GET', `${CFG.API_BASE}/domains`);
+    let domains = ["cheapluxury.eu"];
+    if (res.ok && res.data?.response_code === 200) {
+      domains = res.data.data?.domains || ["cheapluxury.eu"];
+    }
+    const blacklist = ['annnekkk.com', 'kuhaku.indevs.in', 'vupn.me',];
+    domains = domains.filter(d => !blacklist.includes(d));
+    if (domains.length === 0) domains = ["cheapluxury.eu"];
+    return domains;
+  };
+
+  const requestCreateEmail = async (user) => {
+    const domains = await fetchDomains();
+    const selectedDomain = domains[~~(Math.random() * domains.length)];
+    const emailAddress = `${user}@${selectedDomain}`;
+    const payload = { email: emailAddress, password: CFG.MAIL_PASS };
+    const res = await api('POST', `${CFG.API_BASE}/register`, payload);
+    if (res.ok && (res.data?.response_code === 200 || res.data?.response_code === 201)) { return emailAddress; }
+    return null;
+  };
+  const extractLink = (combinedText) => {
+    const allLinks = combinedText.match(/https?:\/\/[^\s"\'<>]+/g) || [];
+    const targetLinks = allLinks.map(l => l.replace(/&amp;/g, '&')).filter(l => (l.includes("discord.com") || l.includes("click.discord.com")) && !l.includes("support.") && !l.includes("blog."));
+    if (targetLinks.length === 0) return null;
+    return targetLinks.reduce((a, b) => a.length > b.length ? a : b);
+  };
+  const checkEmail = async () => {
+    if (state.checking || !state.email) return;
+    state.checking = true;
+    state.count++;
+    info(`🔍 [Lần ${state.count}] Đang kiểm tra thư từ Cheapluxury...`);
+    try {
+      const payload = { email: state.email, password: CFG.MAIL_PASS };
+      const r = await api('POST', `${CFG.API_BASE}/email/get`, payload);
+      if (r.ok && r.data?.response_code === 200) {
+        const messages = r.data.data?.emails || [];
+        if (messages.length > 0) {
+          const msg = messages.find(m => m.subject?.toLowerCase().includes('discord') || m.subject?.toLowerCase().includes('verify') || m.subject?.toLowerCase().includes('xác'));
+          if (msg) {
+            success('📩 Đã tìm thấy thư Discord!');
+            const bodyHtml = msg.body_html || "";
+            const bodyText = msg.body_text || "";
+            const link = extractLink(bodyHtml + bodyText);
+            if (link) {
+              success('🔗 Đã tìm thấy link, tiến hành chuyển hướng...');
+              localStorage.setItem('v_prev', window.location.href);
+              localStorage.setItem('v_progress', 'true');
+              localStorage.setItem('v_email', state.email);
+              localStorage.setItem('v_user', state.user);
+              window.location.href = link;
+              return;
+            } else { error('❌ Không bóc tách được link verify trong mail.'); }
+          }
+        }
+      }
+      if (state.count < CFG.MAX) { setTimeout(checkEmail, CFG.INTERVAL); }
+      else { error('⏱️ Hết thời gian chờ nhận mail!'); }
+    } catch(err) { if (state.count < CFG.MAX) setTimeout(checkEmail, CFG.INTERVAL); }
+    finally { state.checking = false; }
+  };
+
+  const startReg = async () => {
+    localStorage.removeItem('wait_until');
+    info('⏳ Đang yêu cầu cấp Email Cheapluxury...');
+    const userRand = genUsername();
+    const registeredEmail = await requestCreateEmail(userRand);
+    if (!registeredEmail) { error('❌ Lỗi tạo/đăng ký email trên Cheapluxury!'); return; }
+    state.email = registeredEmail;
+    state.user = userRand;
+    localStorage.setItem('p_email', state.email);
+    localStorage.setItem('p_user', state.user);
+    await sleep(500);
+    const icons = [ "💢","🐽","🍋","🌽","💗","🍑","🫑","🍌","🍍","🌶️"]
+    const shuffled = [...icons].sort(() => 0.5 - Math.random());
+    const selectedIcons = shuffled.slice(0, 3).join('');
+    const displayName = `Nhat Vua Token ${selectedIcons}`;
+    let emailInput = null;
+    for (let i = 0; i < 10; i++) { emailInput = $('input[type="email"]'); if (emailInput) break; await sleep(500); }
+    if (!emailInput) { error('❌ Không tìm thấy input email!'); return; }
+    setVal(emailInput, state.email);
+    await sleep(500);
+    const inputs = { display: $('input[aria-label="Tên hiển thị"]'), username: $('input[aria-label="Tên đăng nhập"]'), password: $('input[aria-label="Mật khẩu"]') };
+    for (let i = 0; i < 5; i++) { if (!inputs.display) inputs.display = $('input[aria-label="Tên hiển thị"]'); if (!inputs.username) inputs.username = $('input[aria-label="Tên đăng nhập"]'); if (!inputs.password) inputs.password = $('input[aria-label="Mật khẩu"]'); if (Object.values(inputs).every(Boolean)) break; await sleep(300); }
+    if (inputs.display) setVal(inputs.display, displayName);
+    if (inputs.username) setVal(inputs.username, state.user);
+    if (inputs.password) setVal(inputs.password, CFG.PASS);
+    await sleep(500);
+    await fillDOB();
+    await sleep(500);
+    await tickCheckbox();
+    await sleep(500);
+    const submitted = await submitForm();
+    if (submitted) { success(`🚀 Đã điền xong (${displayName})! Bấm nút đăng ký và xác nhận captcha.`); }
+    else { error('⚠️ Không tìm thấy nút submit!'); }
+  };
+
+  const clearData = async () => {
+    localStorage.clear();
+    sessionStorage.clear();
+    document.cookie.split(';').forEach(c => { const n = c.split('=')[0].trim(); document.cookie = `${n}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=.discord.com`; });
+    if (window.indexedDB) { const dbs = await window.indexedDB.databases(); await Promise.all(dbs.map(db => db.name ? window.indexedDB.deleteDatabase(db.name) : null)); }
+    success('✨ Đã dọn dữ liệu cũ!');
+  };
+
+  const newAcc = async () => {
+    if (phoneCheckInterval) {
+      clearInterval(phoneCheckInterval);
+      phoneCheckInterval = null;
+    }
+    if (phoneObserver) {
+      phoneObserver.disconnect();
+      phoneObserver = null;
+    }
+    if (joinPhoneInterval) {
+      clearInterval(joinPhoneInterval);
+      joinPhoneInterval = null;
+    }
+    let waitUntil = null;
+    if (CFG.AUTO_LOOP && CFG.WAIT_BETWEEN_LOOPS > 0) {
+      waitUntil = Date.now() + CFG.WAIT_BETWEEN_LOOPS * 1000;
+    }
+    await clearData();
+    if (waitUntil) {
+      localStorage.setItem('wait_until', waitUntil.toString());
+      info(`⏳ Sẽ tự động đăng ký tài khoản tiếp theo sau ${CFG.WAIT_BETWEEN_LOOPS} giây...`);
+    }
+    window.location.href = 'https://discord.com/register';
+  };
+
+  const isPhoneLocked = () => {
+    const fullText = document.documentElement.innerText || document.documentElement.textContent;
+    const lower = fullText.toLowerCase();
+    const keywords = [
+      'phone', 'số điện thoại', 'xác minh số điện thoại', 'xác minh bằng điện thoại',
+      'verify your phone', 'phone verification', 'yêu cầu xác minh',
+      'xác minh danh tính', 'verify your identity', 'điện thoại', 'nhập số điện thoại'
+    ];
+    const found = keywords.some(kw => lower.includes(kw));
+    if (!found) return false;
+
+    if (document.querySelector('input[type="tel"]')) return true;
+
+    const modals = document.querySelectorAll('[role="dialog"], [class*="modal"], [class*="popup"], [class*="overlay"]');
+    for (const modal of modals) {
+      const style = window.getComputedStyle(modal);
+      if (style.display !== 'none' && style.visibility !== 'hidden' && modal.offsetParent !== null) {
+        const modalText = modal.innerText.toLowerCase();
+        if (keywords.some(kw => modalText.includes(kw))) return true;
+      }
+    }
+    if (lower.includes('đăng xuất') || lower.includes('hỗ trợ')) return true;
+    return found;
+  };
+
+  const handlePhoneLock = async () => {
+    if (state.isHandlingPhoneLock) return;
+    state.isHandlingPhoneLock = true;
+
+    error('📱 Phát hiện phone lock! Đang quét token...');
+    await runCheckLive();
+
+    info('🔄 Tiến hành reset để tạo tài khoản mới...');
+    await newAcc();
+
+    state.isHandlingPhoneLock = false;
+  };
+
+  const verify = async () => {
+    if (localStorage.getItem('v_progress') !== 'true') return;
+    const email = localStorage.getItem('v_email');
+    if (!email) return;
+    info('⏳ Đang lắng nghe trạng thái xác nhận (có chờ captcha)...');
+    let startTime = Date.now();
+    const timeout = 300000;
+    const checkInterval = 800;
+
+    const isCaptchaPresent = () => {
+      if (document.querySelector('iframe[src*="hcaptcha"], iframe[src*="recaptcha"], div[class*="captcha"]')) return true;
+      const txt = document.body.textContent;
+      if (txt.includes("captcha") || txt.includes("CAPTCHA")) return true;
+      return false;
+    };
+
+    const isVerified = () => {
+      const txt = document.body.textContent;
+      return txt.includes('Đã Được Xác Nhận') || txt.includes('Verified') || txt.includes('Tiếp tục');
+    };
+
+    const check = setInterval(() => {
+      if (isCaptchaPresent()) {
+        info('🤖 Phát hiện captcha ở verify, vui lòng giải captcha thủ công...');
+      }
+      if (isVerified()) {
+        clearInterval(check);
+        success('✅ Tài khoản đã được kích hoạt!');
+        localStorage.setItem('v_done', 'true');
+        localStorage.setItem('v_need_join', 'true');
+        localStorage.removeItem('v_progress');
+        const prev = localStorage.getItem('v_prev') || 'https://discord.com/channels/@me';
+        localStorage.removeItem('v_prev');
+        setTimeout(() => window.location.href = prev, 1500);
+        return;
+      }
+      if (Date.now() - startTime > timeout) {
+        clearInterval(check);
+        error('⏰ Quá thời gian chờ xác nhận, sẽ quay lại đăng ký mới.');
+        localStorage.removeItem('v_progress');
+        window.location.href = 'https://discord.com/register';
+      }
+    }, checkInterval);
+  };
+
+  const autoJoinServerLogic = async () => {
+    if (localStorage.getItem('v_need_join') !== 'true') return;
+    info('🚀 Tự động gia nhập Server (sau verify)...');
+    await sleep(3000);
+
+    if (joinPhoneInterval) clearInterval(joinPhoneInterval);
+    joinPhoneInterval = setInterval(async () => {
+      if (isPhoneLocked()) {
+        if (joinPhoneInterval) {
+          clearInterval(joinPhoneInterval);
+          joinPhoneInterval = null;
+        }
+        await handlePhoneLock();
+      }
+    }, 2000);
+
+    let joined = false;
+    let attempts = 0;
+    while (!joined && attempts < CFG.JOIN_MAX_RETRIES) {
+      attempts++;
+      info(`🔄 Lần thử join thứ ${attempts}/${CFG.JOIN_MAX_RETRIES}...`);
+      joined = await joinServer();
+      if (!joined) {
+        error(`❌ Lần ${attempts} thất bại, thử lại sau ${CFG.JOIN_RETRY_DELAY/1000} giây...`);
+        await sleep(CFG.JOIN_RETRY_DELAY);
+      }
+    }
+
+    if (!joined) {
+      error('❌ Đã thử join nhiều lần nhưng không thành công. Bỏ qua join.');
+      localStorage.removeItem('v_need_join');
+      if (joinPhoneInterval) {
+        clearInterval(joinPhoneInterval);
+        joinPhoneInterval = null;
+      }
+      if (CFG.AUTO_LOOP) {
+        info('🔄 Vẫn reset để tạo tài khoản mới do bật AUTO_LOOP...');
+        await newAcc();
+      }
+      return;
+    }
+
+    if (joinPhoneInterval) {
+      clearInterval(joinPhoneInterval);
+      joinPhoneInterval = null;
+    }
+
+    const result = await waitForJoinCompletion();
+    if (CFG.AUTO_LOOP) {
+      info('🔄 Tiến hành reset để tạo tài khoản mới...');
+      await newAcc();
+    } else {
+      localStorage.removeItem('v_need_join');
+      success('🎉 Đã hoàn tất, không bật chế độ tự động lặp.');
+    }
+  };
+
+  const channels = async () => {
+    await sleep(2000);
+    const token = getToken();
+    if (token) {
+      const savedEmail = localStorage.getItem('p_email') || localStorage.getItem('v_email') || 'Unknown';
+      const savedUser = localStorage.getItem('p_user') || localStorage.getItem('v_user') || 'Unknown';
+      const isNew = saveToken(token, savedEmail, savedUser);
+      if (isNew) success(`✅ Đã lưu token của @${savedUser}`);
+    }
+    if (localStorage.getItem('v_need_join') === 'true') {
+      await autoJoinServerLogic();
+      return;
+    } else if (localStorage.getItem('v_done') === 'true') {
+      success('✅ Tài khoản đã hoàn tất quy trình.');
+    } else {
+      const email = localStorage.getItem('p_email') || localStorage.getItem('v_email');
+      const user = localStorage.getItem('p_user') || localStorage.getItem('v_user');
+      if (email) { state.email = email; state.user = user; state.count = 0; state.checking = false; setTimeout(checkEmail, 2000); }
+    }
+
+    if (phoneCheckInterval) {
+      clearInterval(phoneCheckInterval);
+      phoneCheckInterval = null;
+    }
+    if (phoneObserver) {
+      phoneObserver.disconnect();
+      phoneObserver = null;
+    }
+
+    phoneCheckInterval = setInterval(async () => {
+      if (isPhoneLocked()) {
+        if (phoneCheckInterval) {
+          clearInterval(phoneCheckInterval);
+          phoneCheckInterval = null;
+        }
+        if (phoneObserver) {
+          phoneObserver.disconnect();
+          phoneObserver = null;
+        }
+        await handlePhoneLock();
+      }
+    }, 2000);
+
+    phoneObserver = new MutationObserver(async () => {
+      if (isPhoneLocked()) {
+        if (phoneCheckInterval) {
+          clearInterval(phoneCheckInterval);
+          phoneCheckInterval = null;
+        }
+        if (phoneObserver) {
+          phoneObserver.disconnect();
+          phoneObserver = null;
+        }
+        await handlePhoneLock();
+      }
+    });
+    phoneObserver.observe(document.body, { childList: true, subtree: true });
+  };
+
+  const togglePanel = () => {
+    state.panelOpen = !state.panelOpen;
+    const content = $('#panel-content');
+    const toggle = $('#panel-toggle');
+    if (state.panelOpen) { content.style.maxHeight = '500px'; content.style.opacity = '1'; content.style.padding = '12px 15px'; toggle.innerHTML = '▼'; }
+    else { content.style.maxHeight = '0'; content.style.opacity = '0'; content.style.padding = '0 15px'; toggle.innerHTML = '▲'; }
+  };
+
+  const panel = () => {
+    const p = document.createElement('div');
+    const isC = location.pathname.includes('/channels/');
+    p.id = 'control-panel';
+    p.innerHTML = `
+      <div id="panel-header" style="display: flex; justify-content: space-between; align-items: center; padding: 8px 15px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 12px 12px 0 0; cursor: pointer;">
+        <div style="font-size: 14px; font-weight: 700; color: #fff;">🎄 EGon Pr</div>
+        <button id="panel-toggle" style="background: rgba(255,255,255,.2); border: none; color: #fff; width: 24px; height: 24px; border-radius: 6px; cursor: pointer;">▼</button>
+      </div>
+      <div id="panel-content" style="max-height: 500px; overflow: hidden; transition: all .4s; padding: 12px 15px; background: rgba(255,255,255,.95); border-radius: 0 0 12px 12px;">
+        ${isC ? `<div style="background: linear-gradient(135deg,#10b981,#34d399); padding: 8px 12px; border-radius: 10px; margin-bottom: 10px; color: #fff; font-size: 11px;"><div><strong>📧</strong> <span id="em-display">-</span></div><div><strong>👤</strong> <span id="us-display">-</span></div></div>` : ''}
+        <button id="btn-start" style="width: 100%; padding: 10px; background: #3b82f6; color: white; border: none; border-radius: 10px; margin-bottom: 8px; cursor: pointer;">${isC ? '🔄 Tạo Tài Khoản Mới' : '🚀 Bắt Đầu Điền Form'}</button>
+        <button id="btn-token-manager" style="width: 100%; padding: 10px; background: #8b5cf6; color: white; border: none; border-radius: 10px; margin-bottom: 8px; cursor: pointer;">📋 Token Manager (${getAllTokens().length})</button>
+        <button id="btn-join-server" style="width: 100%; padding: 10px; background: #f59e0b; color: white; border: none; border-radius: 10px; margin-bottom: 8px; cursor: pointer;">🔗 Join Server</button>
+        <button id="btn-check-live" style="width: 100%; padding: 10px; background: #10b981; color: white; border: none; border-radius: 10px; cursor: pointer;">🔍 Check Live Token</button>
+      </div>
+    `;
+    p.style.cssText = `position: fixed; top: 15px; right: 15px; z-index: 999998; font-family: 'Inter', sans-serif; width: 280px; box-shadow: 0 10px 40px rgba(0,0,0,.25); border-radius: 12px; overflow: hidden;`;
+    document.body.appendChild(p);
+    $('#panel-header').addEventListener('click', togglePanel);
+    $('#panel-toggle').addEventListener('click', (e) => { e.stopPropagation(); togglePanel(); });
+    if (isC) {
+      $('#em-display').textContent = localStorage.getItem('p_email') || localStorage.getItem('v_email') || '-';
+      $('#us-display').textContent = localStorage.getItem('p_user') || localStorage.getItem('v_user') || '-';
+      $('#btn-start').addEventListener('click', newAcc);
+    } else {
+      $('#btn-start').addEventListener('click', startReg);
+    }
+    $('#btn-token-manager').addEventListener('click', showTokenManager);
+    $('#btn-join-server').addEventListener('click', joinServer);
+    $('#btn-check-live').addEventListener('click', runCheckLive);
+  };
+
+  const init = () => {
+    const path = location.pathname;
+    if (path.includes('/register')) {
+      setTimeout(async () => {
+        panel();
+        let waitUntil = localStorage.getItem('wait_until');
+        if (waitUntil && CFG.AUTO_LOOP) {
+          const remaining = parseInt(waitUntil) - Date.now();
+          if (remaining > 0) {
+            const seconds = Math.ceil(remaining / 1000);
+            info(`⏱️ Đang chờ ${seconds} giây trước khi tự động điền form tiếp theo...`);
+            await sleep(remaining);
+          }
+          localStorage.removeItem('wait_until');
+        }
+        await sleep(1000);
+        startReg();
+      }, 1000);
+    } else if (path.includes('/verify')) {
+      verify();
+    } else if (path.includes('/channels')) {
+      setTimeout(panel, 1000);
+      channels();
+    }
+  };
+
+  init();
+})();
