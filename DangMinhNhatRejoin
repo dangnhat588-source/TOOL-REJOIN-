@@ -1,262 +1,192 @@
-import os
-import sys
-import subprocess
+getgenv().PC_Name = getgenv().PC_Name or "DangNhat One"
 
-# Auto-install requests if missing
-try:
-    import requests
-except ImportError:
-    print("[*] Dang cai dat thu vien 'requests'...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "requests"])
-    import requests
+getgenv().Configs = {
+    ["Key"] = "TRAU_226358854E710813D8094D47E32A2B54EA62DA731103D38E";
+    ["Quest"] = {
+        ["Evo Race V1"] = true;
+        ["Evo Race V2"] = true;
+        ["RGB Haki"] = true;
+        ["Pull Lerver"] = true;
+    };
+    Sword = {
+        "Yama";
+        "Tushita";
+        "Cursed Dual Katana";
+    };
+    Gun = {
+        "Skull Guitar";
+    };
+    ["Auto Active Race V4"] = true;
+    ["FPS Limit"] = 10;
+    ["Auto Load"] = true;
+    ["Boost FPS"] = true;
+    ["Hop Fruits"] = true;
+    ["Hop Near"] = {Enabled = false; Distance = 500;};
+    ["Webhook"] = {
+        ["URL"] = "";
+        ["Interval"] = 300;
+    };
+};
 
-import threading
-import time
+getgenv().Hermanos_Settings = {
+    ['key'] = '8270c013-6acd-48c9-98d0-eed6edeebc54',
+    ['PC'] = getgenv().PC_Name,
+}
 
-# --- Thuc thi yeu cau xoa va tao file trong Autoexecute ---
-AUTOEXEC_DIR = "/storage/emulated/0/Delta/Autoexecute"
+local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
+local Players = game:GetService("Players")
+local StarterGui = game:GetService("StarterGui")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 
-def setup_autoexecute_folder():
-    """Xoa toan bo file trong thu mục Autoexecute va tao file dangminhnhattreobloxkid moi."""
-    try:
-        if os.path.exists(AUTOEXEC_DIR):
-            # Xoa toan bo file ben trong thu muc
-            for filename in os.listdir(AUTOEXEC_DIR):
-                file_path = os.path.join(AUTOEXEC_DIR, filename)
-                if os.path.isfile(file_path) or os.path.islink(file_path):
-                    os.unlink(file_path)
-                    print(f"[-] [Autoexecute] Da xoa file cu: {filename}")
-                elif os.path.isdir(file_path):
-                    import shutil
-                    shutil.rmtree(file_path)
-                    print(f"[-] [Autoexecute] Da xoa thu muc cu: {filename}")
-        else:
-            # Neu chua co thu muc thi tao moi
-            os.makedirs(AUTOEXEC_DIR, exist_ok=True)
-            print(f"[+] [Autoexecute] Da tao thu muc: {AUTOEXEC_DIR}")
+local LocalPlayer = Players.LocalPlayer
+local camera = workspace.CurrentCamera
 
-        # Tao file dangminhnhattreobloxkid va ghi noi dung loadstring
-        target_file = os.path.join(AUTOEXEC_DIR, "dangminhnhattreobloxkid")
-        loadstring_content = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/dangnhat588-source/SAE/refs/heads/main/kaitungodcdksgtsieufixlag"))()'
-        
-        with open(target_file, "w", encoding="utf-8") as f:
-            f.write(loadstring_content)
-        print(f"[+] [Autoexecute] Da tao file thanh cong: {target_file}\n")
-        
-    except Exception as e:
-        print(f"[!] [Autoexecute] Loi khi xu ly thu muc Autoexecute: {e}")
+local BLACKLIST_URL = "https://raw.githubusercontent.com/dangnhat588-source/TOOL-REJOIN-/refs/heads/main/nhinconcac"
+local OFFSET_Y = 40 
+local SCAN_INTERVAL = 60
+local MAX_EMPTY_SCANS = 5
 
-# --- Cau hinh danh sach file can dong bo tu GitHub ---
-CONFIG_TARGETS = [
-    # Đã bỏ các mục config cũ, giữ lại mảng trống để giữ nguyên cấu trúc
-]
+local noTargetCount = 0
+local stopped = false
 
-SYNC_INTERVAL = 1  # Chu ky kiem tra file (giay)
+local function getBlacklist()
+	local success, result = pcall(function()
+		return game:HttpGet(BLACKLIST_URL)
+	end)
+	
+	local t = {}
+	if success and result then
+		for line in result:gmatch("[^\r\n]+") do
+			local trimmed = line:match("^%s*(.-)%s*$")
+			if trimmed ~= "" then
+				t[trimmed:lower()] = true
+			end
+		end
+	end
+	return t
+end
 
-# --- Cau hinh cho phan Auto-Restart (Rejoin) ---
-DOWNLOAD_DIR = "/storage/emulated/0/Download"
-FOLDER_NAME = os.path.join(DOWNLOAD_DIR, "DMN_Tool")
-CONFIG_FILE = os.path.join(FOLDER_NAME, "accounts.txt")
+local function clickCenter()
+	local size = camera.ViewportSize
+	local x, y = size.X / 2, (size.Y / 2) + OFFSET_Y
+	VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
+	task.wait(0.05)
+	VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
+end
 
-RESTART_INTERVAL = 9009999999
-SEQUENTIAL_DELAY = 10
+local function processTarget(p, blacklist)
+	if p ~= LocalPlayer then
+		local name = p.Name:lower()
+		local dName = p.DisplayName:lower()
+		local id = tostring(p.UserId)
+		
+		if blacklist[name] or blacklist[dName] or blacklist[id] then
+			pcall(function()
+				StarterGui:SetCore("PromptBlockPlayer", p)
+			end)
+			
+			task.wait(2)
+			clickCenter()
+			task.wait(2)
+			return true
+		end
+	end
+	return false
+end
 
+task.spawn(function()
+	while not stopped do
+		local blacklist = getBlacklist()
+		local foundAny = false
+		
+		for _, p in ipairs(Players:GetPlayers()) do
+			if processTarget(p, blacklist) then
+				foundAny = true
+			end
+		end
+		
+		if foundAny then
+			noTargetCount = 0
+		else
+			noTargetCount = noTargetCount + 1
+			if noTargetCount >= MAX_EMPTY_SCANS then
+				stopped = true
+				break
+			end
+		end
+		
+		task.wait(SCAN_INTERVAL)
+	end
+end)
 
-def check_and_fix_file_loop():
-    """Luong chay ngam: Quet va cap nhat danh sach các file config lien tuc moi 1 giay."""
-    session = requests.Session()
+Players.PlayerAdded:Connect(function(newPlayer)
+	if stopped then return end
+	task.wait(2)
+	local blacklist = getBlacklist()
+	if processTarget(newPlayer, blacklist) then
+		noTargetCount = 0
+	end
+end)
 
-    while True:
-        for target in CONFIG_TARGETS:
-            file_path = target["file_path"]
-            url = target["url"]
-            name = target["name"]
+local parentGui
+local successGui = pcall(function()
+    parentGui = CoreGui
+end)
+if not successGui or not parentGui then
+    parentGui = LocalPlayer:WaitForChild("PlayerGui")
+end
 
-            dir_name = os.path.dirname(file_path)
-            if not os.path.exists(dir_name):
-                try:
-                    os.makedirs(dir_name, exist_ok=True)
-                    print(f"[+] [Sync] Da tao thu muc cho {name}: {dir_name}")
-                except Exception as e:
-                    print(f"[!] [Sync] Loi khi tao thu muc {name}: {e}")
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "FPSLabelGUI"
+screenGui.Parent = parentGui
+screenGui.DisplayOrder = 1000000000
 
-            try:
-                response = session.get(url, timeout=5)
-                if response.status_code == 200:
-                    sample_content = response.text.strip()
+local textLabel = Instance.new("TextLabel")
+textLabel.Parent = screenGui
+textLabel.Size = UDim2.new(0, 300, 0, 50)
+textLabel.Position = UDim2.new(0, 10, 0, 10)
+textLabel.Font = Enum.Font.FredokaOne
+textLabel.TextScaled = true
+textLabel.BackgroundTransparency = 1
+textLabel.TextStrokeTransparency = 0
+textLabel.Text = "FPS: ..."
 
-                    current_content = ""
-                    if os.path.exists(file_path):
-                        try:
-                            with open(file_path, "r", encoding="utf-8") as f:
-                                current_content = f.read().strip()
-                        except Exception:
-                            pass
+local frameCount = 0
+local lastUpdate = os.clock()
+local hue = 0
 
-                    if current_content != sample_content:
-                        print(
-                            f"\n[⚡] [Sync] Phat hien file config ({name}) bi thay doi!"
-                            " Dang dong bo lai tu GitHub..."
-                        )
-                        with open(file_path, "w", encoding="utf-8") as f:
-                            f.write(response.text)
-                        print(f"[+] [Sync] Da cap nhat file ({name}) thanh cong!\n")
-                else:
-                    print(
-                        f"[!] [Sync - {name}] GitHub tra ve ma loi: {response.status_code}"
-                    )
+RunService.RenderStepped:Connect(function(deltaTime)
+    hue = (hue + deltaTime * 0.5) % 1
+    textLabel.TextColor3 = Color3.fromHSV(hue, 1, 1)
 
-            except Exception:
-                pass
+    frameCount = frameCount + 1
+    local now = os.clock()
+    if now - lastUpdate >= 1 then
+        local fps = frameCount / (now - lastUpdate)
+        frameCount = 0
+        lastUpdate = now
+        textLabel.Text = string.format("FPS: %d", math.floor(fps))
+    end
+end)
 
-        time.sleep(SYNC_INTERVAL)
+task.spawn(function() 
+    pcall(function()
+        loadstring(game:HttpGet('https://raw.githubusercontent.com/hermanos-dev/hermanos-script/main/main.lua'))() 
+    end)
+end)
 
+task.spawn(function() 
+    pcall(function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/realkidhub/realkid/refs/heads/main/kaitun.lua"))() 
+    end)
+end)
 
-def ensure_config_exists():
-    """Tudong tao thu muc DMN_Tool va file accounts.txt neu chua co."""
-    if not os.path.exists(FOLDER_NAME):
-        try:
-            os.makedirs(FOLDER_NAME, exist_ok=True)
-            print(f"[+] Da tao thu muc quan ly: {FOLDER_NAME}")
-        except Exception as e:
-            print(f"[!] Loi khi tao thu muc {FOLDER_NAME}: {e}")
-
-    if not os.path.exists(CONFIG_FILE):
-        try:
-            sample_data = (
-                "# Format: package_name = link_server HOAC package_name, link_server\n"
-                "# Vi du:\n"
-                "# com.roblox.client = https://www.roblox.com/games/...\n"
-            )
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-                f.write(sample_data)
-            print(f"[+] Da tao file mau: {CONFIG_FILE}")
-            print("[!] Vui long them danh sach tai khoan/package vao file tren roi chay lai tool!")
-        except Exception as e:
-            print(f"[!] Loi khi tao file {CONFIG_FILE}: {e}")
-
-
-def load_accounts():
-    accounts = {}
-    if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-
-                if "," in line:
-                    parts = line.split(",", 1)
-                elif "=" in line:
-                    parts = line.split("=", 1)
-                else:
-                    continue
-
-                pkg = parts[0].strip()
-                link = parts[1].strip()
-                pkg = pkg.split()[0]
-
-                if pkg and link:
-                    accounts[pkg] = link
-    return accounts
-
-
-def kill_and_open_tab(pkg, server_link):
-    print(f"\n[🔄] Xu ly goi: {pkg}")
-
-    print(f"[-] Dang tat hoan toan ung dung {pkg}...")
-    os.system(f"su -c 'am force-stop {pkg}'")
-    time.sleep(3)
-
-    print(f"[+] Dang mo lai app {pkg} kem link server...")
-    cmd = (
-        "su -c 'am start -W -a android.intent.action.VIEW -d"
-        f' "{server_link}" {pkg}\''
-    )
-    os.system(cmd)
-
-    time.sleep(2)
-    print(f"[+] Da hoan tat mo lai cho {pkg}")
-
-
-def main():
-    print("==========================================")
-    print("   TOOL AUTO-RESTART DMN & SYNC CONFIG")
-    print("==========================================")
-
-    # Thuc hien xoa va tao file autoexecute ngay khi chay tool
-    setup_autoexecute_folder()
-
-    # Kich hoat luong dong bo ngam
-    sync_thread = threading.Thread(target=check_and_fix_file_loop, daemon=True)
-    sync_thread.start()
-    print("[🚀] Da kich hoat luong tu dong kiem tra & dong bo file config (1s/lan).\n")
-
-    # Kiem tra va tao file accounts.txt neu chua co
-    ensure_config_exists()
-
-    accounts = load_accounts()
-    if not accounts:
-        print(
-            f"[!] File {CONFIG_FILE} chua co tai khoan nao. Vui long dien thông tin va chay lai."
-        )
-        return
-
-    print(f"[-] Dang tai tong cong {len(accounts)} goi ung dung...")
-    print(f"[-] Thu muc quan ly: {FOLDER_NAME}\n")
-
-    print("[*] Bat dau mo lan luot tung tab ban dau (Delay 10s moi tab)...")
-    for index, (pkg, server_link) in enumerate(accounts.items(), 1):
-        print(f"\n--- Tab {index}/{len(accounts)} ---")
-        kill_and_open_tab(pkg, server_link)
-
-        if index < len(accounts):
-            print(
-                f"[*] Dang doi {SEQUENTIAL_DELAY} giay de tab load link server..."
-            )
-            time.sleep(SEQUENTIAL_DELAY)
-        else:
-            time.sleep(3)
-
-    print(
-        "\n[+] Da khoi dong xong toan bo cac tab! Chuyen sang che do dem gio Rejoin dinh ky...\n"
-    )
-
-    timer_restart = {pkg: time.time() for pkg in accounts.keys()}
-
-    loop_count = 0
-    while True:
-        accounts = load_accounts()
-        current_time = time.time()
-
-        loop_count += 1
-        if loop_count >= 30:
-            current_time_str = time.strftime("%H:%M:%S")
-            print(
-                f"[*] [{current_time_str}] Tool dang chay ngam dem gio cho {len(accounts)} goi..."
-            )
-            loop_count = 0
-
-        for pkg, server_link in list(accounts.items()):
-            if pkg not in timer_restart:
-                timer_restart[pkg] = current_time
-                continue
-
-            if current_time - timer_restart[pkg] >= RESTART_INTERVAL:
-                print(f"\n[⏰] Den lich lam moi (Rejoin) cho goi {pkg}.")
-                kill_and_open_tab(pkg, server_link)
-
-                timer_restart[pkg] = time.time()
-                print(f"[+] Da hoan tat lenh Rejoin dinh ky cho {pkg}\n")
-
-                time.sleep(3)
-
-        for pkg in list(timer_restart.keys()):
-            if pkg not in accounts:
-                del timer_restart[pkg]
-
-        time.sleep(10)
-
-
-if __name__ == "__main__":
-    main()
+task.spawn(function()
+    task.wait(10)
+    pcall(function()
+        if setfpscap then
+            setfpscap(10)
+        end
+    end)
+end)
